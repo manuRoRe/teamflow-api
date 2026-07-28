@@ -43,10 +43,15 @@ PORT=3000
 JWT_SECRET=una_clave_larga_y_privada
 DATABASE_URL=postgresql://usuario:password@host:5432/mi_trafico
 FRONTEND_URLS=http://localhost:5173
+LOGIN_RATE_LIMIT=100
 ```
 
 `FRONTEND_URLS` admite varios orígenes separados por comas. No se debe guardar
 el archivo `.env` en Git.
+
+`LOGIN_RATE_LIMIT` define cuántos intentos de acceso admite cada IP durante 15
+minutos. El valor docente predeterminado es `100` para evitar bloqueos cuando
+varios alumnos comparten la misma red.
 
 ## Swagger
 

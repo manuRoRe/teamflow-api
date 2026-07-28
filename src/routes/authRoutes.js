@@ -7,9 +7,18 @@ import { authenticateToken } from "../middleware/authMiddleware.js";
 
 export const authRouter = Router();
 
+const configuredLoginLimit = Number.parseInt(
+  process.env.LOGIN_RATE_LIMIT ?? "",
+  10
+);
+const loginLimit =
+  Number.isInteger(configuredLoginLimit) && configuredLoginLimit > 0
+    ? configuredLoginLimit
+    : 100;
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 20,
+  limit: loginLimit,
   standardHeaders: "draft-8",
   legacyHeaders: false,
   skip: () => process.env.NODE_ENV === "test",

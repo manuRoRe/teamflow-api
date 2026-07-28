@@ -11,6 +11,7 @@ import { healthRouter } from "./routes/healthRoutes.js";
 import { meRouter } from "./routes/meRoutes.js";
 
 export const app = express();
+app.set("trust proxy", 1);
 
 const allowedOrigins = String(
   process.env.FRONTEND_URLS ||
