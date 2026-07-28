@@ -1,39 +1,57 @@
+import { compare } from "bcryptjs";
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
 import jwt from "jsonwebtoken";
-import { authUsers } from "../data/authUsers.js";
+import { getDatabase } from "../database/client.js";
 import { authenticateToken } from "../middleware/authMiddleware.js";
 
 export const authRouter = Router();
 
-authRouter.post("/login", (req, res) => {
-  const { email, password } = req.body ?? {};
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === "test",
+  message: {
+    message: "Demasiados intentos de inicio de sesión. Inténtalo más tarde.",
+  },
+});
 
-  const foundUser = authUsers.find(
-    (user) =>
-      user.email.toLowerCase() === String(email).trim().toLowerCase() &&
-      user.password === password
-  );
+authRouter.post("/login", loginLimiter, async (req, res, next) => {
+  try {
+    const { email, password } = req.body ?? {};
+    const normalizedEmail = String(email ?? "").trim().toLowerCase();
+    const foundUser = normalizedEmail
+      ? await getDatabase().user.findUnique({
+          where: { email: normalizedEmail },
+          include: { citizen: { select: { id: true } } },
+        })
+      : null;
 
-  if (!foundUser) {
-    return res.status(401).json({ message: "Credenciales incorrectas." });
+    if (
+      !foundUser ||
+      typeof password !== "string" ||
+      !(await compare(password, foundUser.passwordHash))
+    ) {
+      return res.status(401).json({ message: "Credenciales incorrectas." });
+    }
+
+    const userToSend = {
+      id: foundUser.id,
+      name: foundUser.name,
+      email: foundUser.email,
+      role: foundUser.role,
+      citizenId: foundUser.citizen?.id ?? null,
+    };
+    const token = jwt.sign(userToSend, process.env.JWT_SECRET, {
+      expiresIn: "2h",
+    });
+
+    res.json({ token, user: userToSend });
+  } catch (error) {
+    next(error);
   }
-
-  const userToSend = {
-    id: foundUser.id,
-    name: foundUser.name,
-    email: foundUser.email,
-    role: foundUser.role,
-    citizenId: foundUser.citizenId,
-  };
-
-  const token = jwt.sign(userToSend, process.env.JWT_SECRET, {
-    expiresIn: "2h",
-  });
-
-  res.json({
-    token,
-    user: userToSend,
-  });
 });
 
 authRouter.get("/me", authenticateToken, (req, res) => {

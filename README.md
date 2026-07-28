@@ -1,266 +1,237 @@
 # Mi Tráfico API
 
-Backend académico inspirado en la sede electrónica de tráfico. Permite que un
-ciudadano consulte su expediente y que un agente administrador registre
-infracciones, ajuste puntos o cambie el estado de un permiso de conducción.
+Backend académico inspirado en los servicios de tráfico. Un ciudadano puede
+consultar sus datos, vehículos, permisos, infracciones y movimientos de puntos.
+Un administrador puede consultar expedientes, crear ciudadanos, registrar
+infracciones, ajustar puntos y cambiar el estado de permisos.
 
-> Este proyecto simplifica procedimientos administrativos reales. No representa
-> la operativa oficial de la DGT ni debe utilizarse con datos reales.
+> Es una simplificación educativa. No representa la operativa oficial de la DGT
+> y no debe utilizarse con datos personales reales.
 
 ## Tecnologías
 
-- Node.js y Express
-- JWT para autenticación
-- Roles `citizen` y `admin`
-- Persistencia didáctica en JSON
+- Node.js 22, Express y JWT
+- PostgreSQL y Prisma ORM
+- Contraseñas cifradas con bcrypt
+- Swagger UI / OpenAPI 3
 - Pruebas de integración con `node:test`
+- Blueprint preparado para Render
 
-## Instalación
+## Puesta en marcha local
+
+Necesitas Node.js y una base de datos PostgreSQL.
 
 ```bash
 npm install
 cp .env.example .env
+npm run db:generate
+npm run db:deploy
+npm run db:seed
 npm run dev
 ```
 
-La API queda disponible en `http://localhost:3000/api`.
+En Windows PowerShell puedes sustituir `cp` por:
+
+```powershell
+Copy-Item .env.example .env
+```
 
 Variables de entorno:
 
 ```env
 PORT=3000
-JWT_SECRET=super_secret_dev_key_change_me
-FRONTEND_URL=http://localhost:5173
+JWT_SECRET=una_clave_larga_y_privada
+DATABASE_URL=postgresql://usuario:password@host:5432/mi_trafico
+FRONTEND_URLS=http://localhost:5173
 ```
 
-## Credenciales de demostración
+`FRONTEND_URLS` admite varios orígenes separados por comas. No se debe guardar
+el archivo `.env` en Git.
 
-| Perfil | Email | Contraseña | Rol |
+## Swagger
+
+Con la API en ejecución:
+
+- Interfaz: `http://localhost:3000/api/docs`
+- Especificación JSON: `http://localhost:3000/api/docs.json`
+
+Para probar una ruta privada:
+
+1. Ejecuta `POST /api/auth/login`.
+2. Copia el campo `token`.
+3. Pulsa **Authorize** y pega solamente el token.
+4. Ejecuta rutas de `/api/me` o `/api/admin` según el rol.
+
+## Credenciales iniciales
+
+| Perfil | Identificador | Contraseña | Rol |
 | --- | --- | --- | --- |
 | Agente | `agente@trafico.test` | `admin123` | `admin` |
 | Laura | `laura@trafico.test` | `user123` | `citizen` |
 | Diego | `diego@trafico.test` | `user123` | `citizen` |
 
-Las contraseñas en texto plano solo se mantienen para facilitar el uso en clase.
-En producción deben guardarse con hash y la persistencia debe migrarse a una base
-de datos.
-
-## Swagger para clase
-
-Con el servidor en ejecución, abre:
-
-```txt
-http://localhost:3000/api/docs
-```
-
-Swagger muestra todos los endpoints, modelos, parámetros, posibles respuestas y
-ejemplos. Para probar las rutas privadas:
-
-1. Abre `POST /api/auth/login`, pulsa **Try it out** y usa una de las credenciales
-   de demostración.
-2. Ejecuta la petición y copia el campo `token` de la respuesta.
-3. Pulsa **Authorize** en la parte superior de Swagger.
-4. Pega solamente el token, sin escribir `Bearer`, y confirma.
-5. Ya puedes ejecutar las rutas de `/api/me` o `/api/admin` según el rol elegido.
-
-La autorización permanece guardada mientras se recarga la página. Para cambiar
-de ciudadano a administrador, pulsa **Authorize**, cierra la sesión anterior e
-introduce el nuevo token.
-
-La especificación OpenAPI también puede descargarse o importarse en Postman,
-Insomnia y otras herramientas desde:
-
-```txt
-http://localhost:3000/api/docs.json
-```
+La semilla solo se aplica cuando la tabla de usuarios está vacía. Las
+contraseñas se guardan cifradas, nunca en texto plano.
 
 ## Autenticación
-
-### Iniciar sesión
 
 ```http
 POST /api/auth/login
 Content-Type: application/json
 
 {
-  "email": "laura@trafico.test",
-  "password": "user123"
+  "email": "agente@trafico.test",
+  "password": "admin123"
 }
 ```
 
-La respuesta contiene el JWT y el usuario:
-
-```json
-{
-  "token": "jwt...",
-  "user": {
-    "id": 2,
-    "name": "Laura García Ruiz",
-    "email": "laura@trafico.test",
-    "role": "citizen",
-    "citizenId": 1
-  }
-}
-```
-
-Las rutas privadas requieren:
+Aunque el campo se llama `email` por compatibilidad con el contrato existente,
+se trata como un identificador de acceso: es obligatorio y único, pero no se
+valida su formato. Las rutas privadas requieren:
 
 ```http
 Authorization: Bearer TOKEN
 ```
 
-## Rutas del ciudadano
+## Crear un ciudadano
 
-Todas las rutas `/api/me` requieren el rol `citizen`. El identificador del
-ciudadano se toma del token, nunca de la URL, para impedir que consulte el
-expediente de otra persona.
+Solo un administrador puede crear usuarios y siempre se crean con el rol
+`citizen`. La contraseña enviada es definitiva; no hay verificación por email ni
+flujo de cambio obligatorio.
 
-| Método | Ruta | Respuesta |
+```http
+POST /api/admin/citizens
+Authorization: Bearer TOKEN_ADMIN
+Content-Type: application/json
+
+{
+  "name": "Álex García",
+  "email": "alex-identificador",
+  "password": "clave-definitiva",
+  "dni": "11111111H",
+  "birthDate": "2001-04-20",
+  "address": {
+    "street": "Calle Académica 10",
+    "postalCode": "28080",
+    "city": "Madrid",
+    "province": "Madrid"
+  },
+  "phone": "600000001",
+  "initialPoints": 12
+}
+```
+
+`initialPoints` admite `8` o `12`. El identificador y el DNI deben ser únicos.
+La respuesta nunca devuelve la contraseña ni su hash.
+
+## Rutas principales
+
+Todas las rutas `/api/me` requieren rol `citizen`. El ciudadano se obtiene del
+token, por lo que no puede elegir otro expediente.
+
+| Método | Ruta | Función |
 | --- | --- | --- |
-| `GET` | `/api/me` | Expediente completo y resumen |
+| `GET` | `/api/me` | Expediente y resumen completos |
 | `GET` | `/api/me/profile` | Datos personales |
-| `GET` | `/api/me/summary` | Puntos, totales y aptitud básica |
+| `GET` | `/api/me/summary` | Puntos y totales |
 | `GET` | `/api/me/vehicles` | Vehículos propios |
-| `GET` | `/api/me/licenses` | Permisos y sus estados |
-| `GET` | `/api/me/infractions` | Multas e infracciones |
-| `GET` | `/api/me/pointMovements` | Historial auditable de puntos |
+| `GET` | `/api/me/licenses` | Permisos de conducción |
+| `GET` | `/api/me/infractions` | Infracciones |
+| `GET` | `/api/me/pointMovements` | Historial de puntos |
 
-También está disponible `GET /api/auth/me` para consultar los datos contenidos
-en el token.
+Todas las rutas `/api/admin` requieren rol `admin`.
 
-## Rutas del administrador
-
-Todas las rutas `/api/admin` requieren el rol `admin`.
-
-### Consultas
-
-| Método | Ruta | Descripción |
+| Método | Ruta | Función |
 | --- | --- | --- |
-| `GET` | `/api/admin/citizens?search=Laura` | Busca por nombre, DNI o email |
-| `GET` | `/api/admin/citizens/:citizenId` | Expediente completo |
-| `GET` | `/api/admin/vehicles?registrationPlate=1234` | Busca vehículos |
-| `GET` | `/api/admin/infractions?status=pending` | Lista y filtra infracciones |
+| `GET` | `/api/admin/citizens` | Buscar ciudadanos |
+| `POST` | `/api/admin/citizens` | Crear un ciudadano |
+| `GET` | `/api/admin/citizens/:citizenId` | Consultar un expediente |
+| `GET` | `/api/admin/vehicles` | Buscar vehículos |
+| `GET` | `/api/admin/infractions` | Filtrar infracciones |
+| `POST` | `/api/admin/infractions` | Registrar una infracción y descontar puntos |
+| `PATCH` | `/api/admin/infractions/:infractionId/status` | Pagar o anular una infracción |
+| `POST` | `/api/admin/citizens/:citizenId/point-adjustments` | Ajustar puntos |
+| `PATCH` | `/api/admin/citizens/:citizenId/licenses/:licenseId/status` | Cambiar un permiso |
 
-Los listados de vehículos e infracciones también aceptan `citizenId`. Las
-infracciones aceptan además `vehicleId`.
+El contrato completo, los valores admitidos y los ejemplos están en Swagger.
 
-### Registrar una infracción
+## Base de datos y Prisma
 
-```http
-POST /api/admin/infractions
-Authorization: Bearer TOKEN_ADMIN
-Content-Type: application/json
-
-{
-  "citizenId": 1,
-  "vehicleId": 1,
-  "code": "SEM-ROJO",
-  "description": "No respetar la luz roja de un semáforo.",
-  "occurredAt": "2026-07-25T18:30:00.000Z",
-  "location": "Gran Vía 42, Madrid",
-  "pointsToDeduct": 4,
-  "fineAmount": 200,
-  "notes": "Identificación presencial."
-}
-```
-
-`vehicleId` es opcional. Si se incluye, el vehículo debe pertenecer al ciudadano.
-Al crear la infracción se descuenta el número de puntos indicado (`0`, `2`, `3`,
-`4` o `6`), sin permitir un saldo negativo, y se crea un movimiento de puntos.
-
-### Corregir puntos manualmente
-
-```http
-POST /api/admin/citizens/1/point-adjustments
-Authorization: Bearer TOKEN_ADMIN
-Content-Type: application/json
-
-{
-  "delta": -2,
-  "reason": "Corrección administrativa del expediente."
-}
-```
-
-`delta` admite valores entre -15 y 15, excepto 0. El saldo final siempre queda
-entre 0 y 15. Esta operación sirve para correcciones o recuperaciones; la
-deducción normal debe realizarse creando una infracción.
-
-### Suspender, retirar o reactivar un permiso
-
-```http
-PATCH /api/admin/citizens/1/licenses/1/status
-Authorization: Bearer TOKEN_ADMIN
-Content-Type: application/json
-
-{
-  "status": "suspended",
-  "reason": "Suspensión cautelar acordada por la autoridad.",
-  "effectiveAt": "2026-07-26T10:00:00.000Z"
-}
-```
-
-Estados admitidos: `active`, `suspended`, `revoked` y `expired`. Suspender o
-retirar (`revoked`) requiere un motivo. Cada cambio queda en `statusHistory`.
-
-### Pagar o anular una infracción
-
-```http
-PATCH /api/admin/infractions/1/status
-Authorization: Bearer TOKEN_ADMIN
-Content-Type: application/json
-
-{
-  "status": "cancelled",
-  "reason": "Recurso estimado por error de identificación."
-}
-```
-
-Estados admitidos: `pending`, `paid` y `cancelled`. La anulación requiere motivo
-y devuelve automáticamente los puntos retirados, respetando el máximo de 15.
-
-## Reglas del modelo académico
-
-- La infracción se asocia siempre a un ciudadano y, opcionalmente, a uno de sus
-  vehículos.
-- Los puntos pertenecen al ciudadano, no al vehículo.
-- Una multa sin pérdida de puntos usa `pointsToDeduct: 0`.
-- Llegar a 0 puntos no retira automáticamente todos los permisos: el agente debe
-  registrar el cambio de estado que corresponda.
-- Los cambios relevantes guardan fecha y agente para conservar trazabilidad.
-- El sistema no implementa alegaciones, notificaciones, descuentos por pronto
-  pago, titular/conductor distintos ni el procedimiento administrativo oficial.
-
-La separación entre responsable y vehículo sigue la idea de que, según el tipo de
-infracción, la responsabilidad puede recaer en el conductor o en el titular, y de
-que una sanción con pérdida de puntos exige identificar al conductor. Los puntos
-son comunes a todos los permisos de una persona. Como referencias de modelado se
-han utilizado las páginas oficiales de la DGT sobre
-[infracciones y sanciones](https://www.dgt.es/nuestros-servicios/multas-y-sanciones/conoce-los-tipos-de-infracciones-y-sanciones/),
-[identificación del conductor](https://www.dgt.es/nuestros-servicios/multas-y-sanciones/que-hacer-si-has-recibido-una-multa/),
-[permiso por puntos](https://www.dgt.es/nuestros-servicios/permisos-de-conducir/tus-puntos-y-tus-permisos/como-funciona-el-permiso-por-puntos/index.html)
-y [clases de permisos](https://www.dgt.es/nuestros-servicios/permisos-de-conducir/clases-de-permisos-de-conducir/index.html).
-
-## Datos y pruebas
-
-Restaurar los datos iniciales:
+Para desarrollo local, inicia la PostgreSQL incluida en `compose.yaml` y prepara
+los datos:
 
 ```bash
-npm run reset-data
+npm run db:start
+npm run db:deploy
+npm run db:seed
+npm run db:studio
 ```
 
-Ejecutar las pruebas:
+Prisma Studio mostrará en la terminal la URL local que debes abrir. El contenedor
+conserva los datos en el volumen `teamflow_postgres_data`. Para detenerlo ejecuta
+`npm run db:stop`.
+
+Si PowerShell bloquea `npm.ps1` por la política de ejecución, usa `npm.cmd` en
+los mismos comandos, por ejemplo:
+
+```powershell
+npm.cmd run db:start
+npm.cmd run db:deploy
+npm.cmd run db:seed
+npm.cmd run db:studio
+```
+
+Docker Desktop debe estar abierto antes de ejecutar `db:start`.
+La base local de TeamFlow se publica en el puerto `5433` para no interferir con
+otras instalaciones de PostgreSQL que utilicen el puerto habitual `5432`.
+
+Otros comandos disponibles:
+
+```bash
+npm run db:generate  # genera Prisma Client
+npm run db:migrate   # crea una migración durante desarrollo
+npm run db:deploy    # aplica migraciones existentes
+npm run db:seed      # carga usuarios y expedientes iniciales si la BBDD está vacía
+npm run db:studio    # interfaz de inspección
+```
+
+La migración inicial está en `prisma/migrations` y la semilla académica en
+`prisma/seed-data.json`. El runtime no escribe archivos JSON.
+
+## Despliegue gratuito en Render
+
+El archivo `render.yaml` crea un servicio web y una PostgreSQL gratuita:
+
+1. Sube el repositorio a GitHub.
+2. En Render elige **New > Blueprint**.
+3. Conecta el repositorio y aplica el Blueprint.
+4. Render genera `JWT_SECRET`, enlaza `DATABASE_URL`, ejecuta las migraciones y
+   carga la semilla.
+5. Abre `https://TU-SERVICIO.onrender.com/api/docs`.
+
+Si el frontend usa otro dominio, cambia `FRONTEND_URLS` en Render. Puedes poner
+varios orígenes separados por comas.
+
+La PostgreSQL gratuita de Render caduca 30 días después de su creación, tiene
+1 GB y no incluye copias de seguridad. Para un curso más largo habrá que crear
+otra base, exportar los datos previamente o usar un plan de pago. Consulta las
+[limitaciones oficiales del plan gratuito](https://render.com/docs/free) y la
+[guía de conexión de PostgreSQL](https://render.com/docs/postgresql-creating-connecting).
+
+## Pruebas
 
 ```bash
 npm test
 ```
 
-Las pruebas usan un directorio temporal, por lo que no modifican
-`src/data/traffic-store.json`.
+Las pruebas levantan una PostgreSQL compatible en memoria, aplican la migración
+y verifican autenticación, roles, persistencia, infracciones, puntos, permisos y
+Swagger. No necesitan una base local ni modifican la de Render.
 
 ## Conexión desde React + Vite
 
 ```env
-VITE_API_URL=http://localhost:3000/api
+VITE_API_URL=https://TU-SERVICIO.onrender.com/api
 ```
 
 ```js

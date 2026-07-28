@@ -5,6 +5,7 @@ import {
 } from "../middleware/authMiddleware.js";
 import {
   adjustCitizenPoints,
+  createCitizen,
   createInfraction,
   getCitizenDetails,
   listCitizens,
@@ -14,6 +15,7 @@ import {
   updateLicenseStatus,
 } from "../services/trafficService.js";
 import {
+  validateCreateCitizenPayload,
   validateInfractionPayload,
   validateInfractionStatusPayload,
   validateLicenseStatusPayload,
@@ -31,6 +33,17 @@ function sendValidationErrors(res, errors) {
 adminRouter.get("/citizens", async (req, res, next) => {
   try {
     res.json(await listCitizens(req.query.search));
+  } catch (error) {
+    next(error);
+  }
+});
+
+adminRouter.post("/citizens", async (req, res, next) => {
+  try {
+    const errors = validateCreateCitizenPayload(req.body);
+    if (errors.length) return sendValidationErrors(res, errors);
+
+    res.status(201).json(await createCitizen(req.body, req.user));
   } catch (error) {
     next(error);
   }

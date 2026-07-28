@@ -1,14 +1,79 @@
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "@prisma/client";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import { Pool } from "pg";
+import { newDb } from "pg-mem";
 
 let baseUrl;
 let server;
-let testDataDirectory;
+let testDatabase;
+let testPool;
 let citizenToken;
 let adminToken;
+
+function addPrismaRowModeSupport(memoryPg) {
+  const originalQuery = memoryPg.Client.prototype.query;
+
+  memoryPg.Client.prototype.query = function query(
+    statement,
+    valuesOrCallback,
+    callback
+  ) {
+    if (
+      typeof statement !== "object" ||
+      (!statement.rowMode && !statement.types)
+    ) {
+      return originalQuery.call(this, statement, valuesOrCallback, callback);
+    }
+
+    const normalizedStatement = { ...statement };
+    delete normalizedStatement.rowMode;
+    delete normalizedStatement.types;
+
+    const transform = (result) => {
+      const keys = Object.keys(result.rows[0] ?? {});
+      return {
+        ...result,
+        fields: keys.map((name) => {
+          const value = result.rows.find((row) => row[name] != null)?.[name];
+          const dataTypeID =
+            value instanceof Date
+              ? 1114
+              : typeof value === "number"
+                ? name === "fine_amount"
+                  ? 1700
+                  : 23
+                : typeof value === "boolean"
+                  ? 16
+                  : 25;
+          return { name, dataTypeID };
+        }),
+        rows: result.rows.map((row) => keys.map((key) => row[key])),
+      };
+    };
+
+    if (typeof valuesOrCallback === "function") {
+      return originalQuery.call(this, normalizedStatement, (error, result) =>
+        valuesOrCallback(error, error ? undefined : transform(result))
+      );
+    }
+    if (typeof callback === "function") {
+      return originalQuery.call(
+        this,
+        normalizedStatement,
+        valuesOrCallback,
+        (error, result) =>
+          callback(error, error ? undefined : transform(result))
+      );
+    }
+
+    return originalQuery
+      .call(this, normalizedStatement, valuesOrCallback)
+      .then(transform);
+  };
+}
 
 async function api(pathname, options = {}) {
   const headers = { ...(options.headers ?? {}) };
@@ -36,15 +101,34 @@ async function login(email, password) {
 }
 
 before(async () => {
-  testDataDirectory = await mkdtemp(path.join(os.tmpdir(), "mi-trafico-api-"));
-  await copyFile(
-    path.resolve("src/data/traffic-store.seed.json"),
-    path.join(testDataDirectory, "traffic-store.json")
-  );
-
-  process.env.DATA_DIR = testDataDirectory;
+  process.env.NODE_ENV = "test";
+  process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
   process.env.JWT_SECRET = "test-secret-only";
-  process.env.FRONTEND_URL = "http://localhost:5173";
+  process.env.FRONTEND_URLS = "http://localhost:5173";
+
+  const memoryDatabase = newDb({
+    autoCreateForeignKeyIndices: true,
+    noAstCoverageCheck: true,
+  });
+  const memoryPg = memoryDatabase.adapters.createPg();
+  addPrismaRowModeSupport(memoryPg);
+  testPool = new Pool({ Client: memoryPg.Client });
+
+  const migration = await readFile(
+    new URL(
+      "../prisma/migrations/20260728010000_initial_postgresql/migration.sql",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  await testPool.query(migration);
+
+  const adapter = new PrismaPg(testPool);
+  testDatabase = new PrismaClient({ adapter });
+  const { setDatabaseForTests } = await import("../src/database/client.js");
+  const { seedDatabase } = await import("../src/database/seedDatabase.js");
+  setDatabaseForTests(testDatabase);
+  await seedDatabase(testDatabase);
 
   const { app } = await import("../src/app.js");
   server = app.listen(0);
@@ -62,9 +146,8 @@ after(async () => {
       server.close((error) => (error ? reject(error) : resolve()))
     );
   }
-  if (testDataDirectory) {
-    await rm(testDataDirectory, { recursive: true, force: true });
-  }
+  await testDatabase?.$disconnect();
+  await testPool?.end();
 });
 
 test("publica Swagger UI y una especificación OpenAPI importable", async () => {
@@ -93,7 +176,10 @@ test("publica Swagger UI y una especificación OpenAPI importable", async () => 
     "/api/admin/citizens/{citizenId}/licenses/{licenseId}/status",
   ];
   for (const pathname of documentedPaths) {
-    assert.ok(specification.body.paths[pathname], `${pathname} no está documentada`);
+    assert.ok(
+      specification.body.paths[pathname],
+      `${pathname} no está documentada`
+    );
   }
 
   const references = [];
@@ -113,15 +199,27 @@ test("publica Swagger UI y una especificación OpenAPI importable", async () => 
     specification.body.components.securitySchemes.bearerAuth.scheme,
     "bearer"
   );
+  assert.ok(specification.body.paths["/api/admin/citizens"].post);
+  const createSchema =
+    specification.body.components.schemas.CreateCitizenRequest;
+  assert.equal(createSchema.properties.email.format, undefined);
+  assert.equal(createSchema.properties.password.writeOnly, true);
+  assert.deepEqual(createSchema.properties.initialPoints.enum, [8, 12]);
+  assert.ok(
+    specification.body.components.schemas.Health.required.includes("database")
+  );
 
   const ui = await fetch(`${baseUrl}/api/docs/`);
   assert.equal(ui.status, 200);
   assert.match(ui.headers.get("content-type"), /text\/html/);
   assert.match(await ui.text(), /swagger-ui/);
+});
 
-  const stylesheet = await fetch(`${baseUrl}/api/docs/swagger-ui.css`);
-  assert.equal(stylesheet.status, 200);
-  assert.match(stylesheet.headers.get("content-type"), /text\/css/);
+test("health comprueba también la conexión con PostgreSQL", async () => {
+  const response = await api("/api/health");
+  assert.equal(response.status, 200);
+  assert.equal(response.body.status, "ok");
+  assert.equal(response.body.database, "connected");
 });
 
 test("protege los expedientes y limita las rutas por rol", async () => {
@@ -133,10 +231,70 @@ test("protege los expedientes y limita las rutas por rol", async () => {
   });
   assert.equal(citizenAsAdmin.status, 403);
 
+  const createAsCitizen = await api("/api/admin/citizens", {
+    method: "POST",
+    headers: { authorization: `Bearer ${citizenToken}` },
+    body: {},
+  });
+  assert.equal(createAsCitizen.status, 403);
+
   const adminAsCitizen = await api("/api/me", {
     headers: { authorization: `Bearer ${adminToken}` },
   });
   assert.equal(adminAsCitizen.status, 403);
+});
+
+test("el administrador crea un ciudadano persistente con contraseña definitiva", async () => {
+  const payload = {
+    name: "Álex de Prueba",
+    email: "usuario-sin-formato-email",
+    password: "clave-definitiva",
+    dni: "11111111H",
+    birthDate: "2001-04-20",
+    address: {
+      street: "Calle Académica 10",
+      postalCode: "28080",
+      city: "Madrid",
+      province: "Madrid",
+    },
+    phone: "600000001",
+    initialPoints: 12,
+    role: "admin",
+  };
+
+  const created = await api("/api/admin/citizens", {
+    method: "POST",
+    headers: { authorization: `Bearer ${adminToken}` },
+    body: payload,
+  });
+
+  assert.equal(created.status, 201);
+  assert.equal(created.body.user.role, "citizen");
+  assert.equal(created.body.user.email, payload.email);
+  assert.equal(created.body.citizen.points, 12);
+  assert.equal("password" in created.body.user, false);
+  assert.equal("passwordHash" in created.body.user, false);
+
+  const newCitizenToken = await login(payload.email, payload.password);
+  const profile = await api("/api/me/profile", {
+    headers: { authorization: `Bearer ${newCitizenToken}` },
+  });
+  assert.equal(profile.status, 200);
+  assert.equal(profile.body.dni, payload.dni);
+
+  const search = await api(
+    `/api/admin/citizens?search=${encodeURIComponent("usuario-sin")}`,
+    { headers: { authorization: `Bearer ${adminToken}` } }
+  );
+  assert.equal(search.status, 200);
+  assert.ok(search.body.some((citizen) => citizen.dni === payload.dni));
+
+  const duplicate = await api("/api/admin/citizens", {
+    method: "POST",
+    headers: { authorization: `Bearer ${adminToken}` },
+    body: { ...payload, dni: "22222222J" },
+  });
+  assert.equal(duplicate.status, 409);
 });
 
 test("el ciudadano solo obtiene su expediente asociado al token", async () => {

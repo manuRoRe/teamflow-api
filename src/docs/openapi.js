@@ -76,6 +76,10 @@ API académica inspirada en los servicios de tráfico.
           200: jsonResponse("La API está disponible.", {
             $ref: "#/components/schemas/Health",
           }),
+          503: jsonResponse(
+            "La API está levantada, pero la base de datos no está disponible.",
+            { $ref: "#/components/schemas/Health" }
+          ),
         },
       },
     },
@@ -263,6 +267,94 @@ API académica inspirada en los servicios de tráfico.
           }),
           401: { $ref: "#/components/responses/Unauthorized" },
           403: { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      post: {
+        tags: ["Administración"],
+        summary: "Dar de alta a un ciudadano",
+        description: `
+Solo un usuario con rol \`admin\` puede crear ciudadanos.
+
+El servidor crea a la vez la cuenta de acceso y su expediente de tráfico. El
+campo \`email\` se utiliza como **identificador de acceso**: es obligatorio y
+único, pero esta API académica no exige que tenga formato de correo electrónico.
+
+La contraseña enviada es la contraseña definitiva con la que el ciudadano podrá
+iniciar sesión; se almacena como hash y nunca se devuelve. No se admite elegir el
+rol: el servidor fuerza siempre \`citizen\`, aunque el cliente envíe un campo
+\`role\` adicional.
+
+\`initialPoints\` solo admite \`8\` (conductor novel) o \`12\` (saldo general
+inicial en este modelo didáctico).
+`,
+        operationId: "createCitizen",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/CreateCitizenRequest" },
+              example: {
+                name: "Álex de Prueba",
+                email: "alumno-001",
+                password: "clave-definitiva",
+                dni: "11111111H",
+                birthDate: "2001-04-20",
+                address: {
+                  street: "Calle Académica 10",
+                  postalCode: "28080",
+                  city: "Madrid",
+                  province: "Madrid",
+                },
+                phone: "600000001",
+                initialPoints: 12,
+              },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description:
+              "Ciudadano y cuenta de acceso creados. La respuesta no contiene la contraseña ni su hash.",
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/CreateCitizenResponse",
+                },
+                example: {
+                  user: {
+                    id: 4,
+                    name: "Álex de Prueba",
+                    email: "alumno-001",
+                    role: "citizen",
+                    citizenId: 3,
+                  },
+                  citizen: {
+                    id: 3,
+                    dni: "11111111H",
+                    name: "Álex de Prueba",
+                    birthDate: "2001-04-20",
+                    address: {
+                      street: "Calle Académica 10",
+                      postalCode: "28080",
+                      city: "Madrid",
+                      province: "Madrid",
+                    },
+                    email: "alumno-001",
+                    phone: "600000001",
+                    points: 12,
+                    pointsUpdatedAt: "2026-07-28T10:00:00.000Z",
+                  },
+                },
+              },
+            },
+          },
+          400: { $ref: "#/components/responses/ValidationError" },
+          401: { $ref: "#/components/responses/Unauthorized" },
+          403: { $ref: "#/components/responses/Forbidden" },
+          409: errorResponse(
+            "Ya existe una cuenta o un expediente con el mismo identificador de acceso o DNI."
+          ),
+          500: { $ref: "#/components/responses/InternalServerError" },
         },
       },
     },
@@ -528,6 +620,9 @@ API académica inspirada en los servicios de tráfico.
       Unauthorized: errorResponse("Token ausente, inválido o expirado."),
       Forbidden: errorResponse("El rol del usuario no permite esta operación."),
       NotFound: errorResponse("El recurso solicitado no existe."),
+      InternalServerError: errorResponse(
+        "Se produjo un error interno no controlado."
+      ),
       ValidationError: {
         description: "El cuerpo de la petición contiene datos inválidos.",
         content: {
@@ -564,9 +659,18 @@ API académica inspirada en los servicios de tráfico.
       },
       Health: {
         type: "object",
-        required: ["status", "app", "timestamp"],
+        required: ["status", "database", "app", "timestamp"],
         properties: {
-          status: { type: "string", example: "ok" },
+          status: {
+            type: "string",
+            enum: ["ok", "error"],
+            example: "ok",
+          },
+          database: {
+            type: "string",
+            enum: ["connected", "unavailable"],
+            example: "connected",
+          },
           app: { type: "string", example: "Mi Tráfico API" },
           timestamp: {
             type: "string",
@@ -581,7 +685,8 @@ API académica inspirada en los servicios de tráfico.
         properties: {
           email: {
             type: "string",
-            format: "email",
+            description:
+              "Identificador de acceso. No se valida que tenga formato de correo electrónico.",
             example: "laura@trafico.test",
           },
           password: { type: "string", format: "password", example: "user123" },
@@ -595,7 +700,8 @@ API académica inspirada en los servicios de tráfico.
           name: { type: "string", example: "Laura García Ruiz" },
           email: {
             type: "string",
-            format: "email",
+            description:
+              "Identificador de acceso. No se valida que tenga formato de correo electrónico.",
             example: "laura@trafico.test",
           },
           role: {
@@ -633,6 +739,101 @@ API académica inspirada en los servicios de tráfico.
           user: { $ref: "#/components/schemas/AuthUser" },
         },
       },
+      CreateCitizenRequest: {
+        type: "object",
+        required: [
+          "name",
+          "email",
+          "password",
+          "dni",
+          "birthDate",
+          "address",
+          "phone",
+          "initialPoints",
+        ],
+        properties: {
+          name: {
+            type: "string",
+            minLength: 3,
+            example: "Álex de Prueba",
+          },
+          email: {
+            type: "string",
+            minLength: 1,
+            maxLength: 160,
+            description:
+              "Identificador único para iniciar sesión. No tiene validación de formato de email.",
+            example: "alumno-001",
+          },
+          password: {
+            type: "string",
+            format: "password",
+            minLength: 6,
+            maxLength: 72,
+            writeOnly: true,
+            description:
+              "Contraseña definitiva. Se convierte en un hash antes de persistirla y nunca aparece en respuestas.",
+            example: "clave-definitiva",
+          },
+          dni: {
+            type: "string",
+            minLength: 5,
+            description: "Debe ser único.",
+            example: "11111111H",
+          },
+          birthDate: {
+            type: "string",
+            format: "date",
+            description: "Debe ser una fecha anterior a la actual.",
+            example: "2001-04-20",
+          },
+          address: { $ref: "#/components/schemas/Address" },
+          phone: {
+            type: "string",
+            minLength: 5,
+            example: "600000001",
+          },
+          initialPoints: {
+            type: "integer",
+            enum: [8, 12],
+            description: "Saldo inicial permitido por el modelo académico.",
+            example: 12,
+          },
+        },
+      },
+      CreatedCitizenUser: {
+        type: "object",
+        description:
+          "Cuenta creada sin datos secretos. El rol siempre lo fija el servidor.",
+        required: ["id", "name", "email", "role", "citizenId"],
+        properties: {
+          id: { type: "integer", example: 4 },
+          name: { type: "string", example: "Álex de Prueba" },
+          email: {
+            type: "string",
+            description:
+              "Identificador de acceso. No se valida que tenga formato de correo electrónico.",
+            example: "alumno-001",
+          },
+          role: {
+            type: "string",
+            enum: ["citizen"],
+            readOnly: true,
+            example: "citizen",
+          },
+          citizenId: { type: "integer", example: 3 },
+        },
+      },
+      CreateCitizenResponse: {
+        type: "object",
+        description:
+          "Resultado público del alta. No contiene password ni passwordHash.",
+        required: ["user", "citizen"],
+        properties: {
+          user: { $ref: "#/components/schemas/CreatedCitizenUser" },
+          citizen: { $ref: "#/components/schemas/Citizen" },
+        },
+      },
       Address: {
         type: "object",
         required: ["street", "postalCode", "city", "province"],
@@ -668,7 +869,8 @@ API académica inspirada en los servicios de tráfico.
           address: { $ref: "#/components/schemas/Address" },
           email: {
             type: "string",
-            format: "email",
+            description:
+              "Identificador de acceso. No se valida que tenga formato de correo electrónico.",
             example: "laura@trafico.test",
           },
           phone: { type: "string", example: "+34600111222" },

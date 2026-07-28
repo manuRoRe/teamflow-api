@@ -1,0 +1,155 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                    Int                    @id @default(autoincrement())
+  name                  String                 @db.VarChar(120)
+  email                 String                 @unique @db.VarChar(160)
+  passwordHash          String                 @map("password_hash") @db.VarChar(255)
+  role                  String                 @db.VarChar(20)
+  citizen               Citizen?
+  createdCitizens       Citizen[]              @relation("CitizenCreator")
+  recordedInfractions   Infraction[]           @relation("InfractionRecorder")
+  changedInfractions    Infraction[]           @relation("InfractionStatusChanger")
+  recordedPointChanges  PointMovement[]
+  recordedLicenseEvents LicenseStatusHistory[]
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model Citizen {
+  id              Int              @id @default(autoincrement())
+  userId          Int              @unique @map("user_id")
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dni             String           @unique @db.VarChar(20)
+  birthDate       DateTime         @map("birth_date") @db.Date
+  street          String           @db.VarChar(180)
+  postalCode      String           @map("postal_code") @db.VarChar(20)
+  city            String           @db.VarChar(100)
+  province        String           @db.VarChar(100)
+  phone           String           @db.VarChar(30)
+  points          Int              @default(12)
+  pointsUpdatedAt DateTime         @default(now()) @map("points_updated_at")
+  createdByUserId Int?             @map("created_by_user_id")
+  createdBy       User?            @relation("CitizenCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  vehicles        Vehicle[]
+  licenses        DrivingLicense[]
+  infractions     Infraction[]
+  pointMovements  PointMovement[]
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@map("citizens")
+}
+
+model Vehicle {
+  id                   Int          @id @default(autoincrement())
+  ownerCitizenId       Int          @map("owner_citizen_id")
+  owner                Citizen      @relation(fields: [ownerCitizenId], references: [id], onDelete: Cascade)
+  registrationPlate    String       @unique @map("registration_plate") @db.VarChar(20)
+  vin                  String       @unique @db.VarChar(40)
+  make                 String       @db.VarChar(80)
+  model                String       @db.VarChar(80)
+  year                 Int
+  fuel                 String       @db.VarChar(30)
+  inspectionValidUntil DateTime?    @map("inspection_valid_until") @db.Date
+  insuranceValidUntil  DateTime?    @map("insurance_valid_until") @db.Date
+  status               String       @default("active") @db.VarChar(20)
+  infractions          Infraction[]
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  @@map("vehicles")
+}
+
+model DrivingLicense {
+  id              Int                    @id @default(autoincrement())
+  citizenId       Int                    @map("citizen_id")
+  citizen         Citizen                @relation(fields: [citizenId], references: [id], onDelete: Cascade)
+  category        String                 @db.VarChar(10)
+  licenseNumber   String                 @unique @map("license_number") @db.VarChar(40)
+  issuedAt        DateTime               @map("issued_at") @db.Date
+  expiresAt       DateTime               @map("expires_at") @db.Date
+  status          String                 @default("active") @db.VarChar(20)
+  statusReason    String                 @default("") @map("status_reason")
+  statusChangedAt DateTime               @default(now()) @map("status_changed_at")
+  statusHistory   LicenseStatusHistory[]
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+
+  @@unique([citizenId, category])
+  @@map("driving_licenses")
+}
+
+model LicenseStatusHistory {
+  id               Int            @id @default(autoincrement())
+  licenseId        Int            @map("license_id")
+  license          DrivingLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  fromStatus       String         @map("from_status") @db.VarChar(20)
+  toStatus         String         @map("to_status") @db.VarChar(20)
+  reason           String         @default("")
+  changedAt        DateTime       @default(now()) @map("changed_at")
+  recordedByUserId Int            @map("recorded_by_user_id")
+  recordedBy       User           @relation(fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@map("license_status_history")
+}
+
+model Infraction {
+  id                    Int             @id @default(autoincrement())
+  reference             String          @unique @db.VarChar(30)
+  citizenId             Int             @map("citizen_id")
+  citizen               Citizen         @relation(fields: [citizenId], references: [id], onDelete: Cascade)
+  vehicleId             Int?            @map("vehicle_id")
+  vehicle               Vehicle?        @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  code                  String          @db.VarChar(40)
+  description           String
+  occurredAt            DateTime        @map("occurred_at")
+  location              String          @db.VarChar(220)
+  pointsDeducted        Int             @map("points_deducted")
+  fineAmount            Decimal         @map("fine_amount") @db.Decimal(10, 2)
+  status                String          @default("pending") @db.VarChar(20)
+  notes                 String          @default("")
+  pointsBefore          Int             @map("points_before")
+  pointsAfter           Int             @map("points_after")
+  createdAt             DateTime        @default(now()) @map("created_at")
+  recordedByUserId      Int             @map("recorded_by_user_id")
+  recordedBy            User            @relation("InfractionRecorder", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+  statusChangedAt       DateTime?       @map("status_changed_at")
+  statusReason          String          @default("") @map("status_reason")
+  statusChangedByUserId Int?            @map("status_changed_by_user_id")
+  statusChangedBy       User?           @relation("InfractionStatusChanger", fields: [statusChangedByUserId], references: [id], onDelete: SetNull)
+  pointMovements        PointMovement[]
+
+  @@index([citizenId, createdAt])
+  @@index([vehicleId])
+  @@index([status])
+  @@map("infractions")
+}
+
+model PointMovement {
+  id               Int         @id @default(autoincrement())
+  citizenId        Int         @map("citizen_id")
+  citizen          Citizen     @relation(fields: [citizenId], references: [id], onDelete: Cascade)
+  type             String      @db.VarChar(40)
+  delta            Int
+  requestedDelta   Int?        @map("requested_delta")
+  balanceBefore    Int         @map("balance_before")
+  balanceAfter     Int         @map("balance_after")
+  reason           String
+  infractionId     Int?        @map("infraction_id")
+  infraction       Infraction? @relation(fields: [infractionId], references: [id], onDelete: SetNull)
+  createdAt        DateTime    @default(now()) @map("created_at")
+  recordedByUserId Int         @map("recorded_by_user_id")
+  recordedBy       User        @relation(fields: [recordedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([citizenId, createdAt])
+  @@map("point_movements")
+}
