@@ -215,6 +215,29 @@ test("publica Swagger UI y una especificación OpenAPI importable", async () => 
   assert.match(await ui.text(), /swagger-ui/);
 });
 
+test("permite que Swagger llame a la API detrás del proxy de Render", async () => {
+  const renderOrigin = "https://mi-trafico-api.onrender.com";
+  const sameRenderOrigin = await api("/api/health", {
+    headers: {
+      origin: renderOrigin,
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "mi-trafico-api.onrender.com",
+    },
+  });
+  assert.equal(sameRenderOrigin.status, 200);
+
+  const configuredFrontend = await api("/api/health", {
+    headers: { origin: "http://localhost:5173" },
+  });
+  assert.equal(configuredFrontend.status, 200);
+
+  const unknownOrigin = await api("/api/health", {
+    headers: { origin: "https://example.invalid" },
+  });
+  assert.equal(unknownOrigin.status, 403);
+  assert.equal(unknownOrigin.body.message, "Origen no permitido por CORS.");
+});
+
 test("health comprueba también la conexión con PostgreSQL", async () => {
   const response = await api("/api/health");
   assert.equal(response.status, 200);

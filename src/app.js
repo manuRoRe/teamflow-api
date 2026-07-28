@@ -21,18 +21,34 @@ const allowedOrigins = String(
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+function getRequestOrigin(req) {
+  const forwardedProtocol = req
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    .trim();
+  const forwardedHost = req.get("x-forwarded-host")?.split(",")[0].trim();
+  const protocol = forwardedProtocol || req.protocol;
+  const host = forwardedHost || req.get("host");
+
+  return host ? `${protocol}://${host}` : undefined;
+}
+
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
+  cors((req, callback) => {
+    const origin = req.get("origin");
+    const isAllowed =
+      !origin ||
+      origin === getRequestOrigin(req) ||
+      allowedOrigins.includes(origin);
 
-      const error = new Error("Origen no permitido por CORS.");
-      error.status = 403;
-      return callback(error);
-    },
+    if (isAllowed) {
+      return callback(null, { origin: Boolean(origin) });
+    }
+
+    const error = new Error("Origen no permitido por CORS.");
+    error.status = 403;
+    return callback(error);
   })
 );
 app.use(express.json());
