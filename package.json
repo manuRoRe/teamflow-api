@@ -4,10 +4,14 @@
   "description": "Backend académico de gestión de tráfico, permisos, vehículos e infracciones.",
   "type": "module",
   "main": "src/server.js",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "test": "node --test --test-concurrency=1",
+    "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",

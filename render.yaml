@@ -3,7 +3,7 @@ services:
     name: mi-trafico-api
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run db:generate
+    buildCommand: npm ci --include=dev && npm run db:generate
     startCommand: npm run db:deploy && npm run db:seed && npm start
     healthCheckPath: /api/health
     envVars:
@@ -16,7 +16,7 @@ services:
       - key: FRONTEND_URLS
         value: http://localhost:5173
       - key: NODE_VERSION
-        value: "22"
+        value: "22.22.0"
 
 databases:
   - name: mi-trafico-db
