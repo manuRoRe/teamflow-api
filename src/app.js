@@ -20,6 +20,7 @@ const allowedOrigins = String(
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+const allowAnyOrigin = allowedOrigins.includes("*");
 
 function getRequestOrigin(req) {
   const forwardedProtocol = req
@@ -39,6 +40,7 @@ app.use(
     const origin = req.get("origin");
     const isAllowed =
       !origin ||
+      allowAnyOrigin ||
       origin === getRequestOrigin(req) ||
       allowedOrigins.includes(origin);
 

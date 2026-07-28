@@ -88,7 +88,7 @@ async function api(pathname, options = {}) {
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   const body = response.status === 204 ? null : await response.json();
-  return { status: response.status, body };
+  return { status: response.status, body, headers: response.headers };
 }
 
 async function login(email, password) {
@@ -104,7 +104,7 @@ before(async () => {
   process.env.NODE_ENV = "test";
   process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
   process.env.JWT_SECRET = "test-secret-only";
-  process.env.FRONTEND_URLS = "http://localhost:5173";
+  process.env.FRONTEND_URLS = "*";
 
   const memoryDatabase = newDb({
     autoCreateForeignKeyIndices: true,
@@ -215,7 +215,7 @@ test("publica Swagger UI y una especificación OpenAPI importable", async () => 
   assert.match(await ui.text(), /swagger-ui/);
 });
 
-test("permite que Swagger llame a la API detrás del proxy de Render", async () => {
+test("permite Swagger y los frontends de alumnos desde otros orígenes", async () => {
   const renderOrigin = "https://mi-trafico-api.onrender.com";
   const sameRenderOrigin = await api("/api/health", {
     headers: {
@@ -226,16 +226,28 @@ test("permite que Swagger llame a la API detrás del proxy de Render", async () 
   });
   assert.equal(sameRenderOrigin.status, 200);
 
-  const configuredFrontend = await api("/api/health", {
-    headers: { origin: "http://localhost:5173" },
+  const studentFrontend = await api("/api/health", {
+    headers: { origin: "https://proyecto-alumno.vercel.app" },
   });
-  assert.equal(configuredFrontend.status, 200);
+  assert.equal(studentFrontend.status, 200);
+  assert.equal(
+    studentFrontend.headers.get("access-control-allow-origin"),
+    "https://proyecto-alumno.vercel.app"
+  );
 
-  const unknownOrigin = await api("/api/health", {
-    headers: { origin: "https://example.invalid" },
+  const preflight = await api("/api/auth/login", {
+    method: "OPTIONS",
+    headers: {
+      origin: "http://localhost:5174",
+      "access-control-request-method": "POST",
+      "access-control-request-headers": "authorization,content-type",
+    },
   });
-  assert.equal(unknownOrigin.status, 403);
-  assert.equal(unknownOrigin.body.message, "Origen no permitido por CORS.");
+  assert.equal(preflight.status, 204);
+  assert.equal(
+    preflight.headers.get("access-control-allow-origin"),
+    "http://localhost:5174"
+  );
 });
 
 test("health comprueba también la conexión con PostgreSQL", async () => {

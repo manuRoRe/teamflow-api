@@ -209,8 +209,13 @@ El archivo `render.yaml` crea un servicio web y una PostgreSQL gratuita:
    carga la semilla.
 5. Abre `https://TU-SERVICIO.onrender.com/api/docs`.
 
-Si el frontend usa otro dominio, cambia `FRONTEND_URLS` en Render. Puedes poner
-varios orígenes separados por comas.
+El Blueprint configura `FRONTEND_URLS=*` para que los alumnos puedan consumir la
+API desde Swagger, servidores locales con distintos puertos o frontends
+desplegados en servicios como Vercel y Netlify. La API utiliza tokens Bearer, no
+cookies de sesión, y las rutas privadas siguen protegidas mediante JWT y roles.
+
+Si el proyecto deja de ser académico o empieza a manejar datos reales, sustituye
+`*` por los orígenes permitidos separados por comas.
 
 La PostgreSQL gratuita de Render caduca 30 días después de su creación, tiene
 1 GB y no incluye copias de seguridad. Para un curso más largo habrá que crear

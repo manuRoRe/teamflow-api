@@ -14,7 +14,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: FRONTEND_URLS
-        value: http://localhost:5173
+        value: "*"
       - key: NODE_VERSION
         value: "22.22.0"
 
