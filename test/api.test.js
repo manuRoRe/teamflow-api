@@ -250,6 +250,18 @@ test("permite Swagger y los frontends de alumnos desde otros orígenes", async (
   );
 });
 
+test("acepta DB_URL como alias y elimina espacios de la conexión", async () => {
+  const { resolveDatabaseUrl } = await import("../src/database/client.js");
+  const databaseUrl = resolveDatabaseUrl(undefined, {
+    DB_URL: "  postgresql://user:password@database:5432/teamflow  ",
+  });
+
+  assert.equal(
+    databaseUrl,
+    "postgresql://user:password@database:5432/teamflow"
+  );
+});
+
 test("health comprueba también la conexión con PostgreSQL", async () => {
   const response = await api("/api/health");
   assert.equal(response.status, 200);

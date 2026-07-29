@@ -46,6 +46,9 @@ FRONTEND_URLS=http://localhost:5173
 LOGIN_RATE_LIMIT=100
 ```
 
+La conexión puede configurarse con `DATABASE_URL` o, como alias, `DB_URL`.
+En Render utiliza la URL interna completa proporcionada por PostgreSQL.
+
 `FRONTEND_URLS` admite varios orígenes separados por comas. No se debe guardar
 el archivo `.env` en Git.
 

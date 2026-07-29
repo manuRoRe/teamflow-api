@@ -4,13 +4,24 @@ import { PrismaClient } from "@prisma/client";
 
 let databaseClient;
 
-export function createDatabaseClient(connectionString = process.env.DATABASE_URL) {
-  if (!connectionString) {
-    throw new Error("DATABASE_URL no está configurada.");
+export function resolveDatabaseUrl(
+  connectionString,
+  environment = process.env
+) {
+  return String(
+    connectionString ?? environment.DATABASE_URL ?? environment.DB_URL ?? ""
+  ).trim();
+}
+
+export function createDatabaseClient(connectionString) {
+  const databaseUrl = resolveDatabaseUrl(connectionString);
+
+  if (!databaseUrl) {
+    throw new Error("DATABASE_URL o DB_URL no está configurada.");
   }
 
   const adapter = new PrismaPg({
-    connectionString,
+    connectionString: databaseUrl,
     max: 5,
     connectionTimeoutMillis: 5_000,
     idleTimeoutMillis: 30_000,
